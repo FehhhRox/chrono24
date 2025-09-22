@@ -133,3 +133,5 @@ notes/
 .DS_Store
 scraper.py
 json_results/all_listings.json
+json_results/Rolex_DateJust_belgium_new_unworn.json
+.gitignore

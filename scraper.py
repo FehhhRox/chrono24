@@ -68,13 +68,15 @@ def flaresolverr_requests_get(url, **kwargs):
 chrono24.session.requests.get = flaresolverr_requests_get
 
 limit = 100
+query_text = "Rolex DateJust"
+filters = ["belgium", "new_unworn"]
 
 try:
     i = 1
     all_listings = []  # Store all listings in memory
     logger.info("Starting scraping process...")
 
-    query = Query("Rolex DateJust", filters=["belgium", "new_unworn"])
+    query = Query(query_text, filters=filters)
     query.page_size = 120  # Both search and category formats support 120
     logger.info(f"Using page size: {query.page_size}")
 
@@ -90,7 +92,8 @@ try:
         # time.sleep(0.1)
 
     # Save all listings to one big JSON file
-    output_file = "json_results/all_listings.json"
+    filters_str = "_".join(filters)
+    output_file = f"json_results/{query_text.replace(' ', '_')}_{filters_str}.json"
     logger.info(f"Saving {len(all_listings)} listings to {output_file}")
 
     try:
