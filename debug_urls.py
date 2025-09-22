@@ -1,69 +1,53 @@
-from chrono24.api import Query
-import logging
-import chrono24.session
-import requests
+#!/usr/bin/env python3
 
-# Set up logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+import sys
 
-# Apply FlareSolverr patch
-FLARESOLVERR_URL = "http://localhost:8191/v1"
-original_requests_get = requests.get
+sys.path.append(".")
 
+from chrono24.api import Query, BASE_URL
+from chrono24.session import get_response
 
-def flaresolverr_requests_get(url, **kwargs):
-    """Modified requests.get that uses FlareSolverr - works with chrono24's header removal."""
-    try:
-        payload = {"cmd": "request.get", "url": url, "maxTimeout": 60000}
-        logger.info(f"FlareSolverr request to: {url}")
+# Test the URL generation process
+query_text = "Audemars Piguet Royal Oak Selfwinding"
 
-        r = requests.post(FLARESOLVERR_URL, json=payload)
+print("=== URL Generation Debug ===")
+print(f"Query: {query_text}")
+print()
 
-        if r.status_code != 200:
-            logger.warning(
-                f"FlareSolverr failed with status {r.status_code}, falling back to direct request"
-            )
-            return original_requests_get(url, **kwargs)
+# Step 1: See what the initial query URL looks like
+initial_url = (
+    f"{BASE_URL}/search/index.htm?dosearch=true&query={query_text.replace(' ', '+')}"
+)
+print(f"1. Initial search URL: {initial_url}")
 
-        response_json = r.json()
-        if "solution" not in response_json:
-            logger.warning(
-                "FlareSolverr missing solution, falling back to direct request"
-            )
-            return original_requests_get(url, **kwargs)
-
-        solution = response_json["solution"]
-
-        # Create response object
-        response = requests.Response()
-        response.status_code = solution.get("status", 200)
-        response._content = solution["response"].encode("utf-8")
-        response.url = url
-        response.headers.update(solution.get("headers", {}))
-
-        return response
-
-    except Exception as e:
-        logger.warning(f"FlareSolverr failed: {e}, falling back to direct request")
-        return original_requests_get(url, **kwargs)
-
-
-# Patch only the chrono24 session module
-chrono24.session.requests.get = flaresolverr_requests_get
-
-# Test URL construction
-query = Query("Audemars Piguet Royal Oak Chronograph")
+# Step 2: Create Query object and see what happens
+query = Query(query_text)
 query.page_size = 120
 
-print(f"Initial self.url: {query.url}")
+print(f"2. Query.url after initialization: {query.url}")
+print(f"3. Filters parameters: {query.filters.parameters}")
 
-# Check what URL is built for page 1 using get_search_page_url
+# Step 3: Test what get_response does to the URL
+print("\n=== Testing get_response behavior ===")
+test_url = initial_url + "&" + query.filters.parameters
+print(f"Test URL before get_response: {test_url}")
+
+try:
+    response = get_response(test_url)
+    print(f"Response URL after get_response: {response.url}")
+    print(f"Response status: {response.status_code}")
+except Exception as e:
+    print(f"Error during get_response: {e}")
+
+print("\n=== Testing get_search_page_url function ===")
 from html_fix import get_search_page_url
 
-page1_url_fixed = get_search_page_url(query.url, page=1, page_size=query.page_size)
-print(f"Page 1 URL (fixed): {page1_url_fixed}")
+try:
+    # Test pagination URLs
+    page1_url = get_search_page_url(query.url, page=1, page_size=120)
+    page2_url = get_search_page_url(query.url, page=2, page_size=120)
 
-# Check what URL is built for page 2
-page2_url = get_search_page_url(query.url, page=2, page_size=query.page_size)
-print(f"Page 2 URL: {page2_url}")
+    print(f"Page 1 URL: {page1_url}")
+    print(f"Page 2 URL: {page2_url}")
+except Exception as e:
+    print(f"Error during get_search_page_url: {e}")

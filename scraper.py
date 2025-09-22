@@ -67,6 +67,8 @@ def flaresolverr_requests_get(url, **kwargs):
 # Patch only the chrono24 session module
 chrono24.session.requests.get = flaresolverr_requests_get
 
+limit = 100
+
 try:
     i = 1
     all_listings = []  # Store all listings in memory
@@ -76,16 +78,16 @@ try:
     query.page_size = 120  # Both search and category formats support 120
     logger.info(f"Using page size: {query.page_size}")
 
-    for listing in query.search(limit=240):
-        logger.info(f"Processing listing {i}/240")
+    for listing in query.search(limit=limit):
+        logger.info(f"Processing listing {i}" + f"/{limit}" if limit else "")
 
         # Add listing to our collection
         all_listings.append(listing)
 
         i += 1
 
-        # Add a small delay between requests to be respectful
-        time.sleep(0.1)
+        # # Add a small delay between requests to be respectful
+        # time.sleep(0.1)
 
     # Save all listings to one big JSON file
     output_file = "json_results/all_listings.json"

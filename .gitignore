@@ -132,3 +132,4 @@ dmypy.json
 notes/
 .DS_Store
 scraper.py
+json_results/all_listings.json

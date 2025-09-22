@@ -11,6 +11,33 @@ DEFAULT_HEADERS = {
 }
 
 
+def _safe_urljoin_preserve_search(base_url, href_url, original_page1_url):
+    """
+    Helper function to urljoin while preserving /search/ structure when needed.
+
+    Args:
+        base_url: Base URL like "https://www.chrono24.com"
+        href_url: The href to join (could be relative or absolute)
+        original_page1_url: The original page 1 URL to check for search format
+
+    Returns:
+        The properly constructed URL maintaining /search/ structure if needed
+    """
+    # If the original URL uses search format and the href is a relative path to index.htm,
+    # redirect it to /search/index.htm to maintain the search format
+    if "/search/index.htm" in original_page1_url:
+        if (
+            str(href_url).startswith("/")
+            and "index.htm" in str(href_url)
+            and not str(href_url).startswith("/search/")
+        ):
+            href_str = str(href_url)
+            if href_str.startswith("/index.htm"):
+                href_url = href_str.replace("/index.htm", "/search/index.htm", 1)
+
+    return urljoin(base_url, str(href_url))
+
+
 def flaresolverr_get_html(url: str, headers: dict | None = None) -> str:
     payload = {
         "cmd": "request.get",
@@ -37,13 +64,9 @@ _url_pattern_cache = {}
 def get_search_page_url(
     page1_url, page: int = 1, page_size: int = 120, sortorder: int = 5
 ) -> str:
-    # Check if this is a search URL with filters (stays in search format)
-    # vs a simple query (redirects to category format)
-    if "/search/index.htm" in page1_url and any(
-        param in page1_url
-        for param in ["usedOrNew=", "year=", "condition=", "location=", "material="]
-    ):
-        # This is a filtered search URL - it will stay in search format and use showpage= pagination
+    # Check if this is a search URL format - if so, use showpage= pagination directly
+    if "/search/index.htm" in page1_url:
+        # This is a search URL - it will stay in search format and use showpage= pagination
         if page == 1:
             # Ensure page 1 has the correct page size parameter
             if f"pageSize={page_size}" not in page1_url:
@@ -107,7 +130,9 @@ def get_search_page_url(
                     raise RuntimeError(
                         "Could not find further pagination (rel='next' missing)."
                     )
-                cur_url = urljoin("https://www.chrono24.com", str(next_href))
+                cur_url = _safe_urljoin_preserve_search(
+                    "https://www.chrono24.com", next_href, page1_url
+                )
             return cur_url
         else:  # pattern_type == "page"
             if page == 1:
@@ -151,7 +176,10 @@ def get_search_page_url(
             except (KeyError, AttributeError):
                 next_href = None
             if next_href:
-                next_url = urljoin("https://www.chrono24.com", str(next_href))
+                # Apply the same fix for next_href URLs to maintain search format
+                next_url = _safe_urljoin_preserve_search(
+                    "https://www.chrono24.com", next_href, page1_url
+                )
                 if page == 2:
                     # Cache this URL pattern for future use
                     _url_pattern_cache[cache_key] = (next_url, "next")
@@ -190,7 +218,9 @@ def get_search_page_url(
                             raise RuntimeError(
                                 "Could not find further pagination (rel='next' missing)."
                             )
-                        cur_url = urljoin("https://www.chrono24.com", str(next_href2))
+                        cur_url = _safe_urljoin_preserve_search(
+                            "https://www.chrono24.com", next_href2, page1_url
+                        )
                         if cur == page:
                             return cur_url
                         cur += 1
@@ -203,7 +233,11 @@ def get_search_page_url(
         raise RuntimeError("Could not determine URL pattern for pagination.")
 
     # normalize candidate href to absolute URL and add page size
-    target_url = urljoin("https://www.chrono24.com", str(candidate_href))
+    # Use helper function to preserve search format when needed
+    target_url = _safe_urljoin_preserve_search(
+        "https://www.chrono24.com", candidate_href, page1_url
+    )
+
     if f"pageSize={page_size}" not in target_url:
         target_url += f"&pageSize={page_size}"
 
@@ -241,4 +275,4 @@ def get_search_page_html(search_page_url):
 
 # Example usage:
 if __name__ == "__main__":
-    query = "Rolex DateJust"
+    pass
