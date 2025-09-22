@@ -67,29 +67,38 @@ def flaresolverr_requests_get(url, **kwargs):
 # Patch only the chrono24 session module
 chrono24.session.requests.get = flaresolverr_requests_get
 
-# Test with Query.search() - should now work without 413 errors
 try:
     i = 1
+    all_listings = []  # Store all listings in memory
     logger.info("Starting scraping process...")
 
-    query = Query("Audemars Piguet Royal Oak Chronograph")
+    query = Query("Rolex DateJust", filters=["belgium", "new_unworn"])
     query.page_size = 120  # Both search and category formats support 120
     logger.info(f"Using page size: {query.page_size}")
 
-    for listing in query.search(limit=400):
-        logger.info(f"Processing listing {i}/400")
+    for listing in query.search(limit=240):
+        logger.info(f"Processing listing {i}/240")
 
-        try:
-            with open(f"json_results/listing_{i}.json", "w", encoding="utf-8") as f:
-                json.dump(listing, f, ensure_ascii=False, indent=2)
-            logger.debug(f"Saved listing {i} to json_results/listing_{i}.json")
-        except Exception as save_error:
-            logger.error(f"Failed to save listing {i}: {save_error}")
+        # Add listing to our collection
+        all_listings.append(listing)
 
         i += 1
 
         # Add a small delay between requests to be respectful
         time.sleep(0.1)
+
+    # Save all listings to one big JSON file
+    output_file = "json_results/all_listings.json"
+    logger.info(f"Saving {len(all_listings)} listings to {output_file}")
+
+    try:
+        with open(output_file, "w", encoding="utf-8") as f:
+            json.dump(all_listings, f, ensure_ascii=False, indent=2)
+        logger.info(
+            f"Successfully saved all {len(all_listings)} listings to {output_file}"
+        )
+    except Exception as save_error:
+        logger.error(f"Failed to save listings to file: {save_error}")
 
     logger.info(f"Successfully processed {i-1} listings")
 except Exception as e:
@@ -97,12 +106,3 @@ except Exception as e:
     logger.info(
         "Try running the script again or check if FlareSolverr is running properly"
     )
-
-# Test the direct URL method for comparison
-# listings = Query._get_listings_with_attempts(
-#     listings_url="https://www.chrono24.com/audemarspiguet/royal-oak-chronograph--mod1170-3.htm?query=Audemars+Piguet+Royal+Oak+Chronograph&sortorder=5&pageSize=120"
-# )
-
-# for listing_html in listings.htmls:
-#     listing_json = StandardListing(listing_html).json
-#     print(json.dumps(listing_json, ensure_ascii=False, indent=2))

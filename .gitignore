@@ -131,3 +131,4 @@ dmypy.json
 # Other folders
 notes/
 .DS_Store
+scraper.py
