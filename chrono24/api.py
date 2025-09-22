@@ -140,15 +140,12 @@ class Query:
         Returns:
             Listings: A Listings object containing the fetched listings.
         """
-        # Chrono24 will modify the initial query URL - add URL attributes to the modified URL
-        listings_url = self.url + self._join_attrs(**kwargs)
         page_number = kwargs.get("showPage", 1)
-        # Further modify URL if seeking a listings page greater than 1
-        if page_number != 1:
-            # listings_url = listings_url.replace(".htm", f"-{page_number}.htm")
-            listings_url = get_search_page_url(
-                self.url, page=page_number, page_size=self.page_size
-            )
+
+        # Use get_search_page_url for all pages to ensure consistent URL construction
+        listings_url = get_search_page_url(
+            self.url, page=page_number, page_size=self.page_size
+        )
 
         return self._get_listings_with_attempts(listings_url, max_attempts=8)
 

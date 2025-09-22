@@ -37,10 +37,39 @@ _url_pattern_cache = {}
 def get_search_page_url(
     page1_url, page: int = 1, page_size: int = 120, sortorder: int = 5
 ) -> str:
-    # page1_url = build_search_page1_url(query, page_size=page_size, sortorder=sortorder)
-    if page == 1:
-        return page1_url
+    # Check if this is a search URL with filters (stays in search format)
+    # vs a simple query (redirects to category format)
+    if "/search/index.htm" in page1_url and any(
+        param in page1_url
+        for param in ["usedOrNew=", "year=", "condition=", "location=", "material="]
+    ):
+        # This is a filtered search URL - it will stay in search format and use showpage= pagination
+        if page == 1:
+            # Ensure page 1 has the correct page size parameter
+            if f"pageSize={page_size}" not in page1_url:
+                separator = "&" if "?" in page1_url else "?"
+                page1_url += f"{separator}pageSize={page_size}"
+            return page1_url
+        else:
+            # For page > 1, add showpage parameter
+            if f"pageSize={page_size}" not in page1_url:
+                separator = "&" if "?" in page1_url else "?"
+                page1_url += f"{separator}pageSize={page_size}"
 
+            # Add or update showpage parameter
+            if "showpage=" in page1_url:
+                # Replace existing showpage
+                import re
+
+                page1_url = re.sub(r"showpage=\d+", f"showpage={page}", page1_url)
+            else:
+                page1_url += f"&showpage={page}"
+
+            return page1_url
+
+    # Original logic for non-filtered queries that redirect to category format
+    # Always discover the category URL format from the search results
+    # as the search URL format has limitations (only 60 listings per page)
     html = flaresolverr_get_html(page1_url, headers=DEFAULT_HEADERS)
 
     # Check if we have a cached URL pattern for this query
@@ -48,16 +77,23 @@ def get_search_page_url(
     if cache_key in _url_pattern_cache:
         url_pattern, pattern_type = _url_pattern_cache[cache_key]
         if pattern_type == "showpage":
-            target_url = url_pattern.replace(f"showpage=2", f"showpage={page}")
+            # The cached pattern is for page 2, derive page 1
+            if page == 1:
+                target_url = url_pattern.replace(f"showPage=2", f"showPage=1")
+            else:
+                target_url = url_pattern.replace(f"showPage=2", f"showPage={page}")
         elif pattern_type == "index":
-            target_url = url_pattern.replace(f"index-2.htm", f"index-{page}.htm")
+            if page == 1:
+                target_url = url_pattern.replace(f"index-2.htm", f"index.htm")
+            else:
+                target_url = url_pattern.replace(f"index-2.htm", f"index-{page}.htm")
         elif pattern_type == "next":
             # For "next" pattern, we need to iteratively follow links
-            if page == 2:
+            if page == 1:
                 return url_pattern
             # Follow next links iteratively
             cur_url = url_pattern
-            for cur in range(3, page + 1):
+            for cur in range(2, page + 1):
                 cur_html = flaresolverr_get_html(cur_url, headers=DEFAULT_HEADERS)
                 soup = BeautifulSoup(cur_html, "html.parser")
                 rel_next = soup.find("link", rel="next")
@@ -74,7 +110,10 @@ def get_search_page_url(
                 cur_url = urljoin("https://www.chrono24.com", str(next_href))
             return cur_url
         else:  # pattern_type == "page"
-            target_url = url_pattern.replace(f"-2.htm", f"-{page}.htm")
+            if page == 1:
+                target_url = url_pattern.replace(f"-2.htm", f".htm")
+            else:
+                target_url = url_pattern.replace(f"-2.htm", f"-{page}.htm")
 
         return target_url
 
@@ -168,12 +207,26 @@ def get_search_page_url(
     if f"pageSize={page_size}" not in target_url:
         target_url += f"&pageSize={page_size}"
 
-    # Cache the URL pattern for future use
-    _url_pattern_cache[cache_key] = (target_url, pattern_type)
+    # For the "page" pattern, derive the page 1 URL from the page 2 URL
+    if pattern_type == "page":
+        page1_category_url = target_url.replace("-2.htm", ".htm")
+        _url_pattern_cache[cache_key] = (target_url, pattern_type)
+    elif pattern_type == "index":
+        page1_category_url = target_url.replace("index-2.htm", "index.htm")
+        _url_pattern_cache[cache_key] = (target_url, pattern_type)
+    elif pattern_type == "showpage":
+        page1_category_url = target_url.replace("showPage=2", "showPage=1")
+        _url_pattern_cache[cache_key] = (target_url, pattern_type)
+    else:
+        # Should not reach here, but fallback
+        page1_category_url = target_url
+        _url_pattern_cache[cache_key] = (target_url, pattern_type)
 
     # Generate URL for the requested page
-    if pattern_type == "showpage":
-        final_url = target_url.replace(f"showpage=2", f"showpage={page}")
+    if page == 1:
+        return page1_category_url
+    elif pattern_type == "showpage":
+        final_url = target_url.replace(f"showPage=2", f"showPage={page}")
     elif pattern_type == "index":
         final_url = target_url.replace(f"index-2.htm", f"index-{page}.htm")
     else:  # pattern_type == "page"

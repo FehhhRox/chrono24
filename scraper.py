@@ -73,7 +73,7 @@ try:
     logger.info("Starting scraping process...")
 
     query = Query("Audemars Piguet Royal Oak Chronograph")
-    query.page_size = 120
+    query.page_size = 120  # Both search and category formats support 120
     logger.info(f"Using page size: {query.page_size}")
 
     for listing in query.search(limit=400):
