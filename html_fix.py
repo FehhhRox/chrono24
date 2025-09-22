@@ -1,7 +1,6 @@
 import requests
 from urllib.parse import urljoin, quote_plus
 from bs4 import BeautifulSoup
-import chrono24
 
 FLARE_URL = "http://localhost:8191/v1"  # or your WSL2 IP
 
@@ -18,8 +17,9 @@ def flaresolverr_get_html(url: str, headers: dict | None = None) -> str:
         "url": url,
         "maxTimeout": 60000,
     }
-    if headers:
-        payload["headers"] = headers
+    # Note: FlareSolverr v2 doesn't support headers, so we exclude them
+    # if headers:
+    #     payload["headers"] = headers
     r = requests.post(FLARE_URL, json=payload)
     r.raise_for_status()
     return r.json()["solution"]["response"]
@@ -34,26 +34,49 @@ def build_search_page1_url(query: str, page_size: int = 120, sortorder: int = 5)
 _url_pattern_cache = {}
 
 
-def get_search_page_html(
-    query: str, page: int = 1, page_size: int = 120, sortorder: int = 5
+def get_search_page_url(
+    page1_url, page: int = 1, page_size: int = 120, sortorder: int = 5
 ) -> str:
-    page1_url = build_search_page1_url(query, page_size=page_size, sortorder=sortorder)
-    html = flaresolverr_get_html(page1_url, headers=DEFAULT_HEADERS)
+    # page1_url = build_search_page1_url(query, page_size=page_size, sortorder=sortorder)
     if page == 1:
-        return html
+        return page1_url
+
+    html = flaresolverr_get_html(page1_url, headers=DEFAULT_HEADERS)
 
     # Check if we have a cached URL pattern for this query
-    cache_key = (query, page_size, sortorder)
+    cache_key = (page1_url, page_size, sortorder)
     if cache_key in _url_pattern_cache:
         url_pattern, pattern_type = _url_pattern_cache[cache_key]
         if pattern_type == "showpage":
             target_url = url_pattern.replace(f"showpage=2", f"showpage={page}")
         elif pattern_type == "index":
             target_url = url_pattern.replace(f"index-2.htm", f"index-{page}.htm")
+        elif pattern_type == "next":
+            # For "next" pattern, we need to iteratively follow links
+            if page == 2:
+                return url_pattern
+            # Follow next links iteratively
+            cur_url = url_pattern
+            for cur in range(3, page + 1):
+                cur_html = flaresolverr_get_html(cur_url, headers=DEFAULT_HEADERS)
+                soup = BeautifulSoup(cur_html, "html.parser")
+                rel_next = soup.find("link", rel="next")
+                if not rel_next:
+                    raise RuntimeError(
+                        "Could not find further pagination (rel='next' missing)."
+                    )
+                try:
+                    next_href = rel_next.attrs["href"]  # type: ignore
+                except (KeyError, AttributeError):
+                    raise RuntimeError(
+                        "Could not find further pagination (rel='next' missing)."
+                    )
+                cur_url = urljoin("https://www.chrono24.com", str(next_href))
+            return cur_url
         else:  # pattern_type == "page"
             target_url = url_pattern.replace(f"-2.htm", f"-{page}.htm")
 
-        return flaresolverr_get_html(target_url, headers=DEFAULT_HEADERS)
+        return target_url
 
     # First time for this query - need to discover the URL pattern from page 1
     soup = BeautifulSoup(html, "html.parser")
@@ -93,7 +116,7 @@ def get_search_page_html(
                 if page == 2:
                     # Cache this URL pattern for future use
                     _url_pattern_cache[cache_key] = (next_url, "next")
-                    return flaresolverr_get_html(next_url, headers=DEFAULT_HEADERS)
+                    return next_url
 
                 # Get page 2 to discover the pattern
                 page2_html = flaresolverr_get_html(next_url, headers=DEFAULT_HEADERS)
@@ -108,11 +131,15 @@ def get_search_page_html(
                 else:
                     # Fallback to iterative approach for this specific page
                     if page == 2:
-                        return page2_html
+                        return next_url
                     # Continue iteratively for higher pages
                     cur = 3
+                    cur_url = next_url
                     while cur <= page:
-                        soup2 = BeautifulSoup(page2_html, "html.parser")
+                        cur_html = flaresolverr_get_html(
+                            cur_url, headers=DEFAULT_HEADERS
+                        )
+                        soup2 = BeautifulSoup(cur_html, "html.parser")
                         rel_next2 = soup2.find("link", rel="next")
                         if not rel_next2:
                             raise RuntimeError(
@@ -124,12 +151,9 @@ def get_search_page_html(
                             raise RuntimeError(
                                 "Could not find further pagination (rel='next' missing)."
                             )
-                        next_url = urljoin("https://www.chrono24.com", str(next_href2))
-                        page2_html = flaresolverr_get_html(
-                            next_url, headers=DEFAULT_HEADERS
-                        )
+                        cur_url = urljoin("https://www.chrono24.com", str(next_href2))
                         if cur == page:
-                            return page2_html
+                            return cur_url
                         cur += 1
         else:
             raise RuntimeError(
@@ -155,10 +179,13 @@ def get_search_page_html(
     else:  # pattern_type == "page"
         final_url = target_url.replace(f"-2.htm", f"-{page}.htm")
 
-    return flaresolverr_get_html(final_url, headers=DEFAULT_HEADERS)
+    return final_url
+
+
+def get_search_page_html(search_page_url):
+    return flaresolverr_get_html(search_page_url, headers=DEFAULT_HEADERS)
 
 
 # Example usage:
 if __name__ == "__main__":
     query = "Rolex DateJust"
-    html_page2 = get_search_page_html(query, page=2, page_size=60, sortorder=5)

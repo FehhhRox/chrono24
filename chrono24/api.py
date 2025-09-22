@@ -7,6 +7,7 @@ import json
 import re
 import time
 from functools import lru_cache
+from html_fix import get_search_page_url
 
 from bs4 import BeautifulSoup
 
@@ -63,10 +64,14 @@ class Query:
             max_year (int, optional): Maximum year for the search filter. Defaults to None.
         """
         # Initialize filters with default 'used' filter if no query is provided
-        filters = "used" if not query else filters  # Default to 'used' if no query is provided
+        filters = (
+            "used" if not query else filters
+        )  # Default to 'used' if no query is provided
         self.filters = Filters(filters, min_year, max_year)
         # Construct the base URL for the query
-        query_url = f"{BASE_URL}/search/index.htm?dosearch=true&query={query.replace(' ', '+')}"
+        query_url = (
+            f"{BASE_URL}/search/index.htm?dosearch=true&query={query.replace(' ', '+')}"
+        )
         # Add filter parameters to the URL
         self.url = get_response(query_url + "&" + self.filters.parameters).url
         self.count = self._get_listings().count
@@ -140,7 +145,10 @@ class Query:
         page_number = kwargs.get("showPage", 1)
         # Further modify URL if seeking a listings page greater than 1
         if page_number != 1:
-            listings_url = listings_url.replace(".htm", f"-{page_number}.htm")
+            # listings_url = listings_url.replace(".htm", f"-{page_number}.htm")
+            listings_url = get_search_page_url(
+                self.url, page=page_number, page_size=self.page_size
+            )
 
         return self._get_listings_with_attempts(listings_url, max_attempts=8)
 
@@ -210,6 +218,7 @@ class Query:
         attempts = 0
         while attempts < max_attempts:
             try:
+                print(f"Fetching listings from: {listings_url}")
                 listings = Listings(get_html(listings_url))
                 # Return Listings instance if no AttributeError or KeyError is raised
                 next(listings.htmls)  # Check if listings are found
@@ -243,7 +252,9 @@ class Listings:
         """
         listings_div = self.html.find("div", {"id": "wt-watches"})
         # Yield individual listings as found in listings page
-        yield from listings_div.find_all("a", {"class": re.compile(r"^js-article-item")})
+        yield from listings_div.find_all(
+            "a", {"class": re.compile(r"^js-article-item")}
+        )
 
     @staticmethod
     def _get_total_count(html):
@@ -298,20 +309,27 @@ class StandardListing:
         return {
             "id": get_html_tag_attribute_as_text(self.html, "data-article-id"),
             "url": BASE_URL + get_html_tag_attribute_as_text(self.html, "href"),
-            "manufacturer": get_html_tag_attribute_as_text(self.html, "data-manufacturer"),
+            "manufacturer": get_html_tag_attribute_as_text(
+                self.html, "data-manufacturer"
+            ),
             "certification_status": get_html_tag_attribute_as_text(
                 self.html, "data-watch-certification-status"
             ),
             "title": get_html_tag_as_text(
                 self.html.find(
-                    "div", class_=lambda x: x and "text-bold" in x and "text-ellipsis" in x
+                    "div",
+                    class_=lambda x: x and "text-bold" in x and "text-ellipsis" in x,
                 )
             ),
             "description": get_html_tag_as_text(
-                self.html.find("div", class_=lambda x: x and "m-b-2" in x and "text-ellipsis" in x)
+                self.html.find(
+                    "div", class_=lambda x: x and "m-b-2" in x and "text-ellipsis" in x
+                )
             ),
             "price": get_html_tag_as_text(
-                (lambda x: x.parent if x else x)(self.html.find("span", {"class": "currency"}))
+                (lambda x: x.parent if x else x)(
+                    self.html.find("span", {"class": "currency"})
+                )
             ),
             "shipping_price": self._shipping_price,
             "location": self._location_and_merchant_name[0],
@@ -366,7 +384,9 @@ class StandardListing:
         image_divs = self.html.find_all("div", {"class": "js-carousel-cell"})
         # Modify URLs to select for extra large images
         return [
-            get_html_tag_attribute_as_text(image_div.find("img"), "data-lazy-sweet-spot-master-src")
+            get_html_tag_attribute_as_text(
+                image_div.find("img"), "data-lazy-sweet-spot-master-src"
+            )
             .lower()
             .replace("square_size_", "ExtraLarge")
             for image_div in image_divs
@@ -413,20 +433,26 @@ class DetailedListing:
         product_details = {}
         for detail_section in self.html.find_all("tbody"):
             # Each table row is either a detail column (key-value pair) or a detail header or body
-            details = [section.find_all("td") for section in detail_section.find_all("tr")]
+            details = [
+                section.find_all("td") for section in detail_section.find_all("tr")
+            ]
             for idx, detail in enumerate(details):
                 # Get detail key and set default detail value
                 detail_key = get_html_tag_as_text(detail[0]).lower().replace(" ", "_")
                 detail_description = NULL_VALUE
                 try:
                     detail_description = get_html_tag_as_text(detail[1])
-                    product_details[detail_key] = self._tidy_product_detail(detail_description)
+                    product_details[detail_key] = self._tidy_product_detail(
+                        detail_description
+                    )
                 except IndexError:
                     # Check if `detail` is a header above description column or description body
                     # We want to map description headers to their bodies
                     if idx + 1 != len(details) and len(details[idx + 1]) == 1:
                         detail_description = get_html_tag_as_text(details[idx + 1][0])
-                        product_details[detail_key] = self._tidy_product_detail(detail_description)
+                        product_details[detail_key] = self._tidy_product_detail(
+                            detail_description
+                        )
 
         return product_details
 
@@ -469,11 +495,19 @@ class DetailedListing:
         Returns:
             list: A list of available payment methods for the listing.
         """
-        payment_keywords = {"visa", "mastercard", "american-express", "bankwire", "affirm"}
+        payment_keywords = {
+            "visa",
+            "mastercard",
+            "american-express",
+            "bankwire",
+            "affirm",
+        }
         available_payments = []
         for payment in self.html.find_all("i", {"class": "payment-icon"}):
             # Available payments will be found in the payment attributes class
-            payment_class = "".join(payment.get("data-lazy-class", payment.get("class", [])))
+            payment_class = "".join(
+                payment.get("data-lazy-class", payment.get("class", []))
+            )
             for keyword in payment_keywords:
                 if keyword in payment_class:
                     available_payments.append(keyword)
@@ -490,7 +524,9 @@ class DetailedListing:
             str: The anticipated delivery details for the listing.
         """
         anticipated_delivery = self.html.find("span", {"class": "js-shipping-time"})
-        return get_html_tag_as_text(anticipated_delivery).replace("Anticipated delivery: ", "")
+        return get_html_tag_as_text(anticipated_delivery).replace(
+            "Anticipated delivery: ", ""
+        )
 
     @property
     def _merchant_name(self):

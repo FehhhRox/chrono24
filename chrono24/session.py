@@ -54,7 +54,9 @@ def get_html(url, error_message="Failed to execute request.", max_attempts=8):
     return BeautifulSoup(response.text, "html.parser")
 
 
-def get_response(*args, error_message="Failed to execute request.", max_attempts=8, **kwargs):
+def get_response(
+    *args, error_message="Failed to execute request.", max_attempts=8, **kwargs
+):
     """Makes get request using the tenacity wrapper to retry failed requests. Returns response object if
     request is successful; returns None if request failed after max retries.
 
@@ -73,7 +75,9 @@ def get_response(*args, error_message="Failed to execute request.", max_attempts
         RequestException: Repeated requests failed altogether.
     """
     try:
-        return _get_tenacity_wrapped_response(*args, max_attempts=max_attempts, **kwargs)
+        return _get_tenacity_wrapped_response(
+            *args, max_attempts=max_attempts, **kwargs
+        )
     except (tenacity.RetryError, requests.exceptions.HTTPError) as e:
         print(error_message)
         raise RequestException from e
@@ -98,10 +102,15 @@ def _get_tenacity_wrapped_response(*args, max_attempts=8, **kwargs):
     retry_args["stop"] = tenacity.stop.stop_after_attempt(max_attempts)
     for attempt in tenacity.Retrying(**retry_args):
         with attempt:
+            # Remove headers since FlareSolverr v2 doesn't support them
+            # This should prevent the 413 "Request entity too large" error
+            # Remove any headers from kwargs too
+            kwargs_without_headers = kwargs.copy()
+            kwargs_without_headers.pop("headers", None)
+
             response = requests.get(
                 *args,
-                **kwargs,
-                headers={**_generate_dom_specific_header(), **kwargs.get("headers", {})},
+                **kwargs_without_headers,
             )
             response.raise_for_status()
             return response
@@ -120,7 +129,10 @@ def _generate_dom_specific_header():
         "accept": "*/*",
         "accept-encoding": "gzip, deflate",
         "accept-language": faker.random_element(
-            elements=["pt-PT,pt;q=0.9,en-US;q=0.8,en;q=0.7", "en-US,en;q=0.9,fr-FR;q=0.8,fr;q=0.7"]
+            elements=[
+                "pt-PT,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+                "en-US,en;q=0.9,fr-FR;q=0.8,fr;q=0.7",
+            ]
         ),
         "cookie": f"uid={faker.uuid4()}",  # Dynamic UID for each session
         "referer": faker.url(),  # Dynamic referer URL
@@ -133,6 +145,8 @@ def _generate_dom_specific_header():
         "user-agent": faker.user_agent(),  # Generate a realistic User-Agent string
     }
     # Optional: Add minor headers to further mimic real requests
-    headers["X-Requested-With"] = faker.random_element(elements=["XMLHttpRequest", "Fetch"])
+    headers["X-Requested-With"] = faker.random_element(
+        elements=["XMLHttpRequest", "Fetch"]
+    )
     headers["Pragma"] = "no-cache"  # Prevents caching
     return headers
